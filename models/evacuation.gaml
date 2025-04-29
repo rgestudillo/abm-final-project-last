@@ -8,11 +8,14 @@
 model evacuation
 
 global {
-    // Load the shapefile
-    file shape_file_name <- file("../includes/final.shp") parameter: "Shapefile to load:" category: "GIS specific";
+    // Load the building shapefile
+    file building_shapefile <- file("../includes/lahug.shp") parameter: "Building Shapefile:" category: "GIS specific";
     
-    // Define the geographical bounds for the simulation based on the shapefile
-    geometry shape <- envelope(shape_file_name);
+    // Load the pathway shapefile
+    file pathway_shapefile <- file("../includes/pathway.shp") parameter: "Pathway Shapefile:" category: "GIS specific";
+    
+    // Define the geographical bounds for the simulation based on both shapefiles
+    geometry shape <- envelope(building_shapefile) + envelope(pathway_shapefile);
     
     // Parameter for building heights
     float min_height <- 2.0 parameter: "Minimum building height:" category: "Buildings";
@@ -37,8 +40,8 @@ global {
     building fire_source;
     
     init {
-        // Create building agents from the shapefile
-        create building from: shape_file_name {
+        // Create building agents from the building shapefile
+        create building from: building_shapefile {
             // Assign random heights to buildings, between min and max
             height <- rnd(min_height, max_height);
             
@@ -52,7 +55,11 @@ global {
                 my_building <- myself;
             }
         }
-        write "Shapefile loaded successfully with " + length(building) + " buildings.";
+        write "Building shapefile loaded successfully with " + length(building) + " buildings.";
+        
+        // Create pathway agents from the pathway shapefile
+        create pathway from: pathway_shapefile;
+        write "Pathway shapefile loaded successfully with " + length(pathway) + " pathways.";
         
         // Set building0 as the evacuation center
         evacuation_center <- building at 0;
@@ -167,6 +174,17 @@ global {
         if (people_evacuated + people_perished = total_people) {
             write "ALL PEOPLE ACCOUNTED FOR: " + people_evacuated + " people safely evacuated, " + people_perished + " casualties.";
         }
+    }
+}
+
+// Define a pathway species for the pathways shapefile
+species pathway {
+    aspect default {
+        draw shape color: #blue border: #black;
+    }
+    
+    aspect elevated {
+        draw shape color: rgb(0, 0, 255, 150) border: #black depth: 0.1;
     }
 }
 
@@ -350,6 +368,7 @@ experiment evacuation_simulation type: gui {
         // 2D display
         display map {
             species building aspect: default;
+            species pathway aspect: default;
             species exit_indicator aspect: default;
             species fire aspect: default;
             species smoke aspect: default;
@@ -359,6 +378,7 @@ experiment evacuation_simulation type: gui {
         // 3D display with elevated buildings and people inside
         display map_3D type: opengl {
             species building aspect: elevated;
+            species pathway aspect: elevated;
             species exit_indicator aspect: elevated;
             species fire aspect: elevated;
             species smoke aspect: default;
