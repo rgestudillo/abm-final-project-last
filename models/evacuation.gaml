@@ -11,11 +11,8 @@ global {
     // Load the building shapefile
     file building_shapefile <- file("../includes/lahug.shp") parameter: "Building Shapefile:" category: "GIS specific";
     
-    // Load the pathway shapefile
-    file pathway_shapefile <- file("../includes/pathway.shp") parameter: "Pathway Shapefile:" category: "GIS specific";
-    
-    // Define the geographical bounds for the simulation based on both shapefiles
-    geometry shape <- envelope(building_shapefile) + envelope(pathway_shapefile);
+    // Define the geographical bounds for the simulation based only on the building shapefile
+    geometry shape <- envelope(building_shapefile);
     
     // Parameter for building heights
     float min_height <- 2.0 parameter: "Minimum building height:" category: "Buildings";
@@ -57,25 +54,30 @@ global {
         }
         write "Building shapefile loaded successfully with " + length(building) + " buildings.";
         
-        // Create pathway agents from the pathway shapefile
-        create pathway from: pathway_shapefile;
-        write "Pathway shapefile loaded successfully with " + length(pathway) + " pathways.";
-        
-        // Set building0 as the evacuation center
-        evacuation_center <- building at 0;
+
+        // Determine the evacuation center as the building located furthest to the right
+        evacuation_center <- building with_max_of (each.location.x);
         ask evacuation_center {
-            name <- "building0";
+            name <- "evacuation_site";
             is_evacuation_center <- true;
         }
-        write "Evacuation center established at building0";
+        write "Evacuation center established at " + evacuation_center.name;
+
+        // Compute left side boundary
+        float min_x <- min(building collect each.location.x);
+        float max_x <- max(building collect each.location.x);
+        float mid_x <- (min_x + max_x) / 2.0;
+
+        list<building> left_buildings <- building where (each.location.x < mid_x) - evacuation_center;
+        
         
         // Set a random building (not evacuation center) as initial fire source
         fire_source <- one_of(building - evacuation_center);
         
-        // Create person agents inside regular buildings (not in the evacuation center)
-        create person number: (length(building) - 1) * nb_people_per_building {
-            // Randomly place people in buildings that are not the evacuation center
-            building my_building <- one_of(building - evacuation_center);
+        // Create person agents only inside buildings located on the left side
+        create person number: length(left_buildings) * nb_people_per_building {
+            // Randomly place people in one of the left buildings
+            building my_building <- one_of(left_buildings);
             location <- any_location_in(my_building.shape);
             my_home <- my_building;
             speed <- person_speed;
@@ -177,16 +179,6 @@ global {
     }
 }
 
-// Define a pathway species for the pathways shapefile
-species pathway {
-    aspect default {
-        draw shape color: #blue border: #black;
-    }
-    
-    aspect elevated {
-        draw shape color: rgb(0, 0, 255, 150) border: #black depth: 0.1;
-    }
-}
 
 // Define a smoke particle species for visual effects
 species smoke skills: [moving] {
@@ -368,7 +360,6 @@ experiment evacuation_simulation type: gui {
         // 2D display
         display map {
             species building aspect: default;
-            species pathway aspect: default;
             species exit_indicator aspect: default;
             species fire aspect: default;
             species smoke aspect: default;
@@ -378,7 +369,6 @@ experiment evacuation_simulation type: gui {
         // 3D display with elevated buildings and people inside
         display map_3D type: opengl {
             species building aspect: elevated;
-            species pathway aspect: elevated;
             species exit_indicator aspect: elevated;
             species fire aspect: elevated;
             species smoke aspect: default;
