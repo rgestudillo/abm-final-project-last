@@ -2,7 +2,7 @@
 * Name: Simple Random Walk with Evacuation - Multi-Type People
 * Description: People of different types (children, youth, adults, seniors, PWD) walk to road136 and get evacuated with visual status
 * Features: Certain roads are permanently safe from fire and will never burn. Shelters catch fire when near burning roads.
-* Shelter147 is marked as the evacuation site.
+* shelter106 is marked as the evacuation site.
 */
 
 model Simple_Random_Walk_Evacuation
@@ -17,10 +17,10 @@ global {
 	map<road,float> current_weights;
 	
 	// Fire parameters
-	float fire_spread_probability <- 0.25; // Balanced spread rate
+	float fire_spread_probability <- 0.1; // Balanced spread rate
 	float fire_detection_distance <- 150.0;
 	float fire_spread_distance <- 250.0; // Reasonable spread distance
-	float shelter_fire_distance <- 250.0; // Distance for shelters to catch fire from roads
+	float shelter_fire_distance <- 150.0; // Distance for shelters to catch fire from roads
 	int initial_fire_roads <- 1; // Start with 1 fire source
 	string evacuation_road_name <- "road136";
 	string fire_start_road_name <- "road28"; // Fire always starts here
@@ -35,12 +35,13 @@ global {
 		"road140", "road139", "road141", "road144", "road135", "road145"
 	];
 	
-	// People type parameters - speeds in km/h
-	float children_speed <- 20.0 parameter: "Children Speed (km/h)" category: "People Speeds";
-	float youth_speed <- 40.0 parameter: "Youth Speed (km/h)" category: "People Speeds";
-	float adults_speed <- 35.0 parameter: "Adults Speed (km/h)" category: "People Speeds";
-	float seniors_speed <- 15.0 parameter: "Seniors Speed (km/h)" category: "People Speeds";
-	float pwd_speed <- 10.0 parameter: "PWD Speed (km/h)" category: "People Speeds";
+	// People type parameters - speeds in km/h (based on research data)
+	// Research data: Children 1.45m/s, Youth 1.61m/s, Adults 1.64m/s, Seniors 1.32m/s, PWD 1.1m/s
+	float children_speed <- 5.22 parameter: "Children Speed (km/h)" category: "People Speeds";
+	float youth_speed <- 5.796 parameter: "Youth Speed (km/h)" category: "People Speeds";
+	float adults_speed <- 5.904 parameter: "Adults Speed (km/h)" category: "People Speeds";
+	float seniors_speed <- 4.752 parameter: "Seniors Speed (km/h)" category: "People Speeds";
+	float pwd_speed <- 3.96 parameter: "PWD Speed (km/h)" category: "People Speeds";
 	
 	// People type proportions
 	float children_ratio <- 0.15 parameter: "Children Ratio" category: "People Distribution" min: 0.0 max: 1.0;
@@ -390,7 +391,7 @@ species shelter {
 		rgb building_color <- #gray;
 		
 		// Check if this is the evacuation shelter
-		if (name = "shelter147") {
+		if (name = "shelter106") {
 			building_color <- #green;
 		}
 		
@@ -408,7 +409,7 @@ species shelter {
 		}
 		
 		// Add label for evacuation shelter
-		if (name = "shelter147") {
+		if (name = "shelter106") {
 			draw "EVACUATION SITE" at: location + {0, -30} color: #darkgreen font: font("Arial", 14, #bold);
 		}
 	}
@@ -503,7 +504,7 @@ experiment main type: gui {
 				
 				// Evacuation shelter
 				draw square(20) at: {20, 655} color: #green;
-				draw "Evacuation Site (shelter147)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
+				draw "Evacuation Site (shelter106)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
 				
 				// Shelter on fire
 				draw square(20) at: {20, 685} color: #red;
