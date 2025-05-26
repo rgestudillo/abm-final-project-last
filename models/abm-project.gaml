@@ -1,14 +1,14 @@
 /**
 * Name: Simple Random Walk with Evacuation - Multi-Type People
 * Description: People of different types (children, youth, adults, seniors, PWD) walk to road136 and get evacuated with visual status
-* Features: Certain roads are permanently safe from fire and will never burn
+* Features: Certain roads are permanently safe from fire and will never burn. Shelter147 is marked as the evacuation site.
 */
 
 model Simple_Random_Walk_Evacuation
 
 global {
 	file shapefile_roads <- file("../includes/Rouen roads.shp");
-	file shapefile_shelters <- file("../includes/lahug-house.shp");
+	file shapefile_shelters <- file("../includes/test-house.shp");
 
 	geometry shape <- envelope(shapefile_roads);
 	graph road_network;
@@ -25,10 +25,11 @@ global {
 	float evacuation_safety_distance <- 300.0 parameter: "Evacuation Safety Distance (m)" category: "Fire Parameters" min: 100.0 max: 1000.0;
 	
 	// List of permanently safe roads that will never catch fire
-	list<string> permanently_safe_roads <- [ 
-		"road150", "road151", "road142",
-		"road137", "road136", "road138", "road148", "road149", 
-		"road152", "road143", "road147", "road129", 
+	list<string> permanently_safe_roads <- [
+		"road131", "road120", "road130", "road142", "road119", "road123", 
+		"road146", "road108", "road150", "road134", "road115", "road151", 
+		"road133", "road137", "road136", "road138", "road148", "road149", 
+		"road152", "road118", "road143", "road147", "road129", "road122", 
 		"road140", "road139", "road141", "road144", "road135", "road145"
 	];
 	
@@ -40,13 +41,13 @@ global {
 	float pwd_speed <- 10.0 parameter: "PWD Speed (km/h)" category: "People Speeds";
 	
 	// People type proportions
-	float children_ratio <- 0.30 parameter: "Children Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float youth_ratio <- 0.20 parameter: "Youth Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float adults_ratio <- 0.44 parameter: "Adults Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float seniors_ratio <- 0.4 parameter: "Seniors Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float pwd_ratio <- 0.02 parameter: "PWD Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float children_ratio <- 0.15 parameter: "Children Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float youth_ratio <- 0.25 parameter: "Youth Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float adults_ratio <- 0.35 parameter: "Adults Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float seniors_ratio <- 0.15 parameter: "Seniors Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float pwd_ratio <- 0.10 parameter: "PWD Ratio" category: "People Distribution" min: 0.0 max: 1.0;
 	
-	int total_people <- 500 parameter: "Total People" category: "People Distribution" min: 10 max: 1000;
+	int total_people <- 200 parameter: "Total People" category: "People Distribution" min: 10 max: 1000;
 	
 	init {
 		create road from: shapefile_roads;
@@ -339,9 +340,6 @@ species road {
 		if (name = evacuation_road_name) {
 			road_color <- #green;
 			road_width <- 3;
-			// Add evacuation safety zone visualization
-			draw circle(evacuation_safety_distance) color: rgb(0, 255, 0, 0.1) at: location;
-			draw circle(evacuation_safety_distance) color: rgb(0, 200, 0, 0.3) width: 2 at: location empty: true;
 			// Add evacuation center marker
 			draw circle(40) color: rgb(0, 255, 0, 0.3) at: location;
 			draw circle(25) color: rgb(0, 200, 0, 0.5) at: location;
@@ -365,8 +363,19 @@ species road {
 species shelter {
 	aspect default {
 		rgb building_color <- #gray;
+		
+		// Check if this is the evacuation shelter
+		if (name = "shelter106") {
+			building_color <- #yellow;
+		}
+		
 		// Draw building
 		draw shape color: building_color border: #black width: 1;
+		
+		// Add label for evacuation shelter
+		if (name = "shelter106") {
+			draw "EVACUATION SITE" at: location + {0, -30} color: #darkgreen font: font("Arial", 14, #bold);
+		}
 	}
 }
 
@@ -377,7 +386,7 @@ experiment main type: gui {
 	output {
 		display map type: 3d {
 			species road refresh: true;
-			species shelter refresh: false;
+			species shelter refresh: true;
 			species people;
 		}
 		
@@ -446,14 +455,20 @@ experiment main type: gui {
 				draw circle(10) at: {30, 520} color: rgb(0, 255, 0, 0.3);
 				draw "Evacuation Center (" + evacuation_road_name + ")" at: {50, 520} color: #black font: font("Arial", 12, #plain);
 				
-				// Safety zone
-				draw circle(15) at: {20, 545} color: rgb(0, 255, 0, 0.2) width: 2 empty: true;
-				draw "Safety Zone (Fire-Free)" at: {50, 545} color: #black font: font("Arial", 12, #plain);
-				draw "Distance: " + string(int(evacuation_safety_distance)) + "m" at: {50, 560} color: #gray font: font("Arial", 10, #plain);
-				
 				// Roads on fire
-				draw line([{20, 585}, {40, 585}]) color: #red width: 4;
-				draw "Roads on Fire (Blocked)" at: {50, 585} color: #black font: font("Arial", 12, #plain);
+				draw line([{20, 545}, {40, 545}]) color: #red width: 4;
+				draw "Roads on Fire (Blocked)" at: {50, 545} color: #black font: font("Arial", 12, #plain);
+				
+				// Building Legend
+				draw "BUILDING TYPES" at: {50, 595} color: #black font: font("Arial", 16, #bold);
+				
+				// Normal shelter
+				draw square(20) at: {20, 625} color: #gray;
+				draw "Normal Shelter" at: {50, 625} color: #black font: font("Arial", 12, #plain);
+				
+				// Evacuation shelter
+				draw square(20) at: {20, 655} color: #green;
+				draw "Evacuation Site (shelter147)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
 			}
 		}
 		
@@ -507,7 +522,7 @@ experiment main type: gui {
 //				data "Safe Roads" value: length(road where (not each.on_fire)) color: #green marker_shape: marker_circle;
 //			}
 //		}
-		
+//		
 //		display "Person Type Analysis" type: 2d {
 //			chart "Evacuation Rate by Person Type" type: histogram size: {0.5, 0.5} position: {0, 0} {
 //				data "Children" value: (length(people where (each.person_type = "children")) > 0) ? 
@@ -538,7 +553,7 @@ experiment main type: gui {
 //				data "PWD Evacuated" value: length(people where (each.person_type = "pwd" and each.status = "evacuated")) color: #magenta;
 //			}
 //		}
-		
+//		
 //		display "Overall Statistics" type: 2d {
 //			chart "Total Evacuation Rate" type: series size: {1.0, 0.3} position: {0, 0} 
 //				y_range: [0, 100] {
