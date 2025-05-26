@@ -1,7 +1,8 @@
 /**
 * Name: Simple Random Walk with Evacuation - Multi-Type People
 * Description: People of different types (children, youth, adults, seniors, PWD) walk to road136 and get evacuated with visual status
-* Features: Certain roads are permanently safe from fire and will never burn. Shelter147 is marked as the evacuation site.
+* Features: Certain roads are permanently safe from fire and will never burn. Shelters catch fire when near burning roads.
+* Shelter147 is marked as the evacuation site.
 */
 
 model Simple_Random_Walk_Evacuation
@@ -19,6 +20,7 @@ global {
 	float fire_spread_probability <- 0.25; // Balanced spread rate
 	float fire_detection_distance <- 150.0;
 	float fire_spread_distance <- 250.0; // Reasonable spread distance
+	float shelter_fire_distance <- 250.0; // Distance for shelters to catch fire from roads
 	int initial_fire_roads <- 1; // Start with 1 fire source
 	string evacuation_road_name <- "road136";
 	string fire_start_road_name <- "road28"; // Fire always starts here
@@ -203,6 +205,27 @@ global {
 		do update_road_network;
 	}
 	
+	// Check and spread fire to nearby shelters
+	reflex shelter_fire_spread when: every(5#cycle) {
+		// Get all roads that are on fire
+		list<road> fire_roads <- road where each.on_fire;
+		
+		if (not empty(fire_roads)) {
+			// Check each shelter that is not yet on fire
+			ask shelter where (not each.on_fire) {
+				// Check if any fire road is within the shelter fire distance
+				list<road> nearby_fire_roads <- fire_roads where (each.location distance_to self.location <= shelter_fire_distance);
+				
+				if (not empty(nearby_fire_roads)) {
+					// Set shelter on fire
+					on_fire <- true;
+					write "🏠🔥 Shelter caught fire! (distance to nearest fire road: " + 
+						int(min(nearby_fire_roads collect (each.location distance_to self.location))) + "m)";
+				}
+			}
+		}
+	}
+	
 	reflex update_speeds when: every(10#cycle) {
 		do update_road_network;
 	}
@@ -228,10 +251,11 @@ species people skills: [moving] {
 	}
 	
 	reflex detect_fire when: status != "evacuated" {
-		// Check if there's fire nearby (from roads)
+		// Check if there's fire nearby (from roads or shelters)
 		list<road> nearby_fire_roads <- road where (each.on_fire and each.location distance_to location < fire_detection_distance);
+		list<shelter> nearby_fire_shelters <- shelter where (each.on_fire and each.location distance_to location < fire_detection_distance);
 		
-		if (not empty(nearby_fire_roads) and not fire_detected) {
+		if ((not empty(nearby_fire_roads) or not empty(nearby_fire_shelters)) and not fire_detected) {
 			fire_detected <- true;
 			// Start evacuating immediately if fire is detected
 			if (status = "normal") {
@@ -361,19 +385,30 @@ species road {
 }
 
 species shelter {
+	bool on_fire <- false;
 	aspect default {
 		rgb building_color <- #gray;
 		
 		// Check if this is the evacuation shelter
-		if (name = "shelter106") {
-			building_color <- #yellow;
+		if (name = "shelter147") {
+			building_color <- #green;
 		}
 		
-		// Draw building
+		// Check if shelter is on fire and override color
+		if (on_fire) {
+			building_color <- #red;
+		}
+		
+		// Draw building with the correct color
 		draw shape color: building_color border: #black width: 1;
 		
+		// Add fire emoji for burning shelters
+		if (on_fire) {
+			draw "🔥" at: location color: #orange font: font("Arial", 16, #bold);
+		}
+		
 		// Add label for evacuation shelter
-		if (name = "shelter106") {
+		if (name = "shelter147") {
 			draw "EVACUATION SITE" at: location + {0, -30} color: #darkgreen font: font("Arial", 14, #bold);
 		}
 	}
@@ -469,6 +504,12 @@ experiment main type: gui {
 				// Evacuation shelter
 				draw square(20) at: {20, 655} color: #green;
 				draw "Evacuation Site (shelter147)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
+				
+				// Shelter on fire
+				draw square(20) at: {20, 685} color: #red;
+				draw "🔥" at: {20, 685} font: font("Arial", 12, #bold) color: #orange;
+				draw "Shelter on Fire" at: {50, 685} color: #black font: font("Arial", 12, #plain);
+				draw "Fire radius: " + string(int(shelter_fire_distance)) + "m" at: {50, 700} color: #gray font: font("Arial", 10, #plain);
 			}
 		}
 		
@@ -497,6 +538,8 @@ experiment main type: gui {
 		monitor "Roads on Fire (Red)" value: length(road where each.on_fire);
 		monitor "Safe Roads Available" value: length(road where (not each.on_fire));
 		monitor "Permanently Safe Roads" value: length(road where (each.name in permanently_safe_roads));
+		monitor "Shelters on Fire" value: length(shelter where each.on_fire);
+		monitor "Safe Shelters" value: length(shelter where (not each.on_fire));
 		monitor "Evacuation Center Safe" value: not (road first_with (each.name = evacuation_road_name)).on_fire;
 		
 		// Evacuation efficiency monitors
