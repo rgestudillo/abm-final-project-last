@@ -1,12 +1,15 @@
 /**
 * Name: Simple Random Walk with Evacuation - Multi-Type People
-* Description: People of different types (children, youth, adults, seniors, PWD) walk to road125 and get evacuated with visual status
+* Description: People of different types (children, youth, adults, seniors, PWD) walk to road136 and get evacuated with visual status
+* Features: Certain roads are permanently safe from fire and will never burn
 */
 
 model Simple_Random_Walk_Evacuation
 
 global {
 	file shapefile_roads <- file("../includes/Rouen roads.shp");
+	file shapefile_shelters <- file("../includes/test-house.shp");
+
 	geometry shape <- envelope(shapefile_roads);
 	graph road_network;
 	graph safe_road_network; // Network excluding roads on fire
@@ -17,8 +20,18 @@ global {
 	float fire_detection_distance <- 150.0;
 	float fire_spread_distance <- 250.0; // Reasonable spread distance
 	int initial_fire_roads <- 1; // Start with 1 fire source
-	string evacuation_road_name <- "road125";
+	string evacuation_road_name <- "road136";
 	string fire_start_road_name <- "road28"; // Fire always starts here
+	float evacuation_safety_distance <- 300.0 parameter: "Evacuation Safety Distance (m)" category: "Fire Parameters" min: 100.0 max: 1000.0;
+	
+	// List of permanently safe roads that will never catch fire
+	list<string> permanently_safe_roads <- [
+		"road131", "road120", "road130", "road142", "road119", "road123", 
+		"road146", "road108", "road150", "road134", "road115", "road151", 
+		"road133", "road137", "road136", "road138", "road148", "road149", 
+		"road152", "road118", "road143", "road147", "road129", "road122", 
+		"road140", "road139", "road141", "road144", "road135", "road145"
+	];
 	
 	// People type parameters - speeds in km/h
 	float children_speed <- 20.0 parameter: "Children Speed (km/h)" category: "People Speeds";
@@ -38,21 +51,34 @@ global {
 	
 	init {
 		create road from: shapefile_roads;
+		create shelter from: shapefile_shelters;
+		
+		// Count and display permanently safe roads
+		int safe_road_count <- length(road where (each.name in permanently_safe_roads));
+		write "✅ " + safe_road_count + " permanently safe roads identified";
 		
 		// Start fire at the designated road (road28)
 		road fire_start_road <- road first_with (each.name = fire_start_road_name);
-		if (fire_start_road != nil) {
+		if (fire_start_road != nil and not (fire_start_road_name in permanently_safe_roads)) {
 			ask fire_start_road {
 				on_fire <- true;
 				write "🔥 Fire started at " + fire_start_road_name;
 			}
 		} else {
-			write "⚠️ Warning: " + fire_start_road_name + " not found, starting fire randomly";
-			// Fallback to random road if road28 doesn't exist
-			list<road> non_evacuation_roads <- road where (each.name != evacuation_road_name);
-			ask initial_fire_roads among non_evacuation_roads {
-				on_fire <- true;
-				write "🔥 Fire started at random road: " + name;
+			if (fire_start_road_name in permanently_safe_roads) {
+				write "⚠️ Warning: " + fire_start_road_name + " is a permanently safe road, starting fire randomly";
+			} else {
+				write "⚠️ Warning: " + fire_start_road_name + " not found, starting fire randomly";
+			}
+			// Fallback to random road if road28 doesn't exist or is safe
+			list<road> non_evacuation_roads <- road where (each.name != evacuation_road_name and not (each.name in permanently_safe_roads));
+			if (not empty(non_evacuation_roads)) {
+				ask initial_fire_roads among non_evacuation_roads {
+					on_fire <- true;
+					write "🔥 Fire started at random road: " + name;
+				}
+			} else {
+				write "⚠️ ERROR: No roads available for fire start!";
 			}
 		}
 		
@@ -133,28 +159,41 @@ global {
 	}
 	
 	reflex spread_fire when: every(15#cycle) {
+		// Get evacuation center location for safety zone calculation
+		road evacuation_center <- road first_with (each.name = evacuation_road_name);
+		point evacuation_location <- (evacuation_center != nil) ? evacuation_center.location : {0, 0};
+		
 		// Balanced fire spreading
 		list<road> fire_roads <- road where each.on_fire;
-		list<road> safe_roads <- road where (not each.on_fire and each.name != evacuation_road_name);
+		list<road> safe_roads <- road where (not each.on_fire and each.name != evacuation_road_name and not (each.name in permanently_safe_roads));
+		
+		// Remove roads that are within the evacuation safety zone
+		if (evacuation_center != nil) {
+			safe_roads <- safe_roads where (each.location distance_to evacuation_location >= evacuation_safety_distance);
+		}
 		
 		if (not empty(fire_roads) and not empty(safe_roads)) {
 			// For each fire road, try to spread to 1-2 closest safe roads
 			ask fire_roads {
-				// Find 2 closest safe roads to this fire
+				// Find 2 closest safe roads to this fire (excluding permanently safe roads)
 				list<road> closest_roads <- safe_roads closest_to (self.location, 2);
 				
 				ask closest_roads {
 					float distance_to_fire <- location distance_to myself.location;
+					float distance_to_evacuation <- location distance_to evacuation_location;
 					
-					// Fire spreads to close roads with moderate probability
-					if (distance_to_fire < fire_spread_distance) {
-						float spread_chance <- fire_spread_probability * (1.0 - distance_to_fire / fire_spread_distance);
-						
-						if (flip(spread_chance)) {
-							on_fire <- true;
-							write "🔥 Fire spread to new road (distance: " + int(distance_to_fire) + "m)";
-							// Remove from safe roads list so it doesn't get picked again
-							safe_roads <- safe_roads - self;
+					// Double-check that this road is not in the safety zone and not permanently safe
+					if (distance_to_evacuation >= evacuation_safety_distance and not (name in permanently_safe_roads)) {
+						// Fire spreads to close roads with moderate probability
+						if (distance_to_fire < fire_spread_distance) {
+							float spread_chance <- fire_spread_probability * (1.0 - distance_to_fire / fire_spread_distance);
+							
+							if (flip(spread_chance)) {
+								on_fire <- true;
+								write "🔥 Fire spread to new road: " + name + " (distance: " + int(distance_to_fire) + "m)";
+								// Remove from safe roads list so it doesn't get picked again
+								safe_roads <- safe_roads - self;
+							}
 						}
 					}
 				}
@@ -189,10 +228,10 @@ species people skills: [moving] {
 	}
 	
 	reflex detect_fire when: status != "evacuated" {
-		// Check if there's fire nearby
-		list<road> nearby_fires <- road where (each.on_fire and each.location distance_to location < fire_detection_distance);
+		// Check if there's fire nearby (from roads)
+		list<road> nearby_fire_roads <- road where (each.on_fire and each.location distance_to location < fire_detection_distance);
 		
-		if (not empty(nearby_fires) and not fire_detected) {
+		if (not empty(nearby_fire_roads) and not fire_detected) {
 			fire_detected <- true;
 			// Start evacuating immediately if fire is detected
 			if (status = "normal") {
@@ -294,16 +333,27 @@ species road {
 		rgb road_color <- #black;
 		int road_width <- 1;
 		
-		// Highlight evacuation center
+		// Check if this is a permanently safe road
+		bool is_permanently_safe <- name in permanently_safe_roads;
+		
+		// Highlight evacuation center with safety zone
 		if (name = evacuation_road_name) {
 			road_color <- #green;
 			road_width <- 3;
+			// Add evacuation safety zone visualization
+			draw circle(evacuation_safety_distance) color: rgb(0, 255, 0, 0.1) at: location;
+			draw circle(evacuation_safety_distance) color: rgb(0, 200, 0, 0.3) width: 2 at: location empty: true;
 			// Add evacuation center marker
 			draw circle(40) color: rgb(0, 255, 0, 0.3) at: location;
 			draw circle(25) color: rgb(0, 200, 0, 0.5) at: location;
 		}
+		// Permanently safe roads have a distinct color
+		else if (is_permanently_safe) {
+			road_color <- rgb(0, 100, 200); // Blue color for safe roads
+			road_width <- 2;
+		}
 		
-		// Roads on fire are permanently red and blocked
+		// Roads on fire are permanently red and blocked (but this won't happen to safe roads)
 		if (on_fire) {
 			road_color <- #red;
 			road_width <- 4;
@@ -313,11 +363,22 @@ species road {
 	}
 }
 
+species shelter {
+	aspect default {
+		rgb building_color <- #gray;
+		// Draw building
+		draw shape color: building_color border: #black width: 1;
+	}
+}
+
+
+
 experiment main type: gui {
 	float minimum_cycle_duration <- 0.02;
 	output {
 		display map type: 3d {
 			species road refresh: true;
+			species shelter refresh: false;
 			species people;
 		}
 		
@@ -377,14 +438,23 @@ experiment main type: gui {
 				draw line([{20, 470}, {40, 470}]) color: #black width: 2;
 				draw "Normal Roads" at: {50, 470} color: #black font: font("Arial", 12, #plain);
 				
+				// Permanently safe roads
+				draw line([{20, 495}, {40, 495}]) color: rgb(0, 100, 200) width: 3;
+				draw "Permanently Safe Roads" at: {50, 495} color: #black font: font("Arial", 12, #plain);
+				
 				// Evacuation center
-				draw line([{20, 500}, {40, 500}]) color: #green width: 4;
-				draw circle(10) at: {30, 500} color: rgb(0, 255, 0, 0.3);
-				draw "Evacuation Center (road125)" at: {50, 500} color: #black font: font("Arial", 12, #plain);
+				draw line([{20, 520}, {40, 520}]) color: #green width: 4;
+				draw circle(10) at: {30, 520} color: rgb(0, 255, 0, 0.3);
+				draw "Evacuation Center (" + evacuation_road_name + ")" at: {50, 520} color: #black font: font("Arial", 12, #plain);
+				
+				// Safety zone
+				draw circle(15) at: {20, 545} color: rgb(0, 255, 0, 0.2) width: 2 empty: true;
+				draw "Safety Zone (Fire-Free)" at: {50, 545} color: #black font: font("Arial", 12, #plain);
+				draw "Distance: " + string(int(evacuation_safety_distance)) + "m" at: {50, 560} color: #gray font: font("Arial", 10, #plain);
 				
 				// Roads on fire
-				draw line([{20, 530}, {40, 530}]) color: #red width: 4;
-				draw "Roads on Fire (Blocked)" at: {50, 530} color: #black font: font("Arial", 12, #plain);
+				draw line([{20, 585}, {40, 585}]) color: #red width: 4;
+				draw "Roads on Fire (Blocked)" at: {50, 585} color: #black font: font("Arial", 12, #plain);
 			}
 		}
 		
@@ -412,6 +482,7 @@ experiment main type: gui {
 		// Fire status monitors
 		monitor "Roads on Fire (Red)" value: length(road where each.on_fire);
 		monitor "Safe Roads Available" value: length(road where (not each.on_fire));
+		monitor "Permanently Safe Roads" value: length(road where (each.name in permanently_safe_roads));
 		monitor "Evacuation Center Safe" value: not (road first_with (each.name = evacuation_road_name)).on_fire;
 		
 		// Evacuation efficiency monitors
