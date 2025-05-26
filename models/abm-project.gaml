@@ -26,6 +26,12 @@ global {
 	string fire_start_road_name <- "road28"; // Fire always starts here
 	float evacuation_safety_distance <- 300.0 parameter: "Evacuation Safety Distance (m)" category: "Fire Parameters" min: 100.0 max: 1000.0;
 	
+	// Gradual fire system parameters
+	float fire_intensity_increase <- 0.15 parameter: "Fire Intensity Increase Rate" category: "Fire Parameters" min: 0.05 max: 0.5;
+	float fire_spread_threshold <- 0.3 parameter: "Fire Spread Threshold" category: "Fire Parameters" min: 0.1 max: 0.9;
+	float fire_full_intensity <- 1.0; // Maximum fire intensity
+	float fire_ignition_intensity <- 0.1; // Initial fire intensity when ignited
+	
 	// List of permanently safe roads that will never catch fire
 	list<string> permanently_safe_roads <- [
 		"road131", "road120", "road130", "road142", "road119", "road123", 
@@ -64,8 +70,8 @@ global {
 		road fire_start_road <- road first_with (each.name = fire_start_road_name);
 		if (fire_start_road != nil and not (fire_start_road_name in permanently_safe_roads)) {
 			ask fire_start_road {
-				on_fire <- true;
-				write "🔥 Fire started at " + fire_start_road_name;
+				fire_intensity <- fire_ignition_intensity; // Start with low intensity
+				write "🔥 Fire started at " + fire_start_road_name + " (initial intensity: " + fire_intensity + ")";
 			}
 		} else {
 			if (fire_start_road_name in permanently_safe_roads) {
@@ -77,8 +83,8 @@ global {
 			list<road> non_evacuation_roads <- road where (each.name != evacuation_road_name and not (each.name in permanently_safe_roads));
 			if (not empty(non_evacuation_roads)) {
 				ask initial_fire_roads among non_evacuation_roads {
-					on_fire <- true;
-					write "🔥 Fire started at random road: " + name;
+					fire_intensity <- fire_ignition_intensity; // Start with low intensity
+					write "🔥 Fire started at random road: " + name + " (initial intensity: " + fire_intensity + ")";
 				}
 			} else {
 				write "⚠️ ERROR: No roads available for fire start!";
@@ -166,9 +172,9 @@ global {
 		road evacuation_center <- road first_with (each.name = evacuation_road_name);
 		point evacuation_location <- (evacuation_center != nil) ? evacuation_center.location : {0, 0};
 		
-		// Balanced fire spreading
-		list<road> fire_roads <- road where each.on_fire;
-		list<road> safe_roads <- road where (not each.on_fire and each.name != evacuation_road_name and not (each.name in permanently_safe_roads));
+		// Gradual fire spreading - roads with high intensity can ignite nearby roads
+		list<road> fire_roads <- road where (each.fire_intensity >= fire_spread_threshold);
+		list<road> safe_roads <- road where (each.fire_intensity = 0.0 and each.name != evacuation_road_name and not (each.name in permanently_safe_roads));
 		
 		// Remove roads that are within the evacuation safety zone
 		if (evacuation_center != nil) {
@@ -189,11 +195,12 @@ global {
 					if (distance_to_evacuation >= evacuation_safety_distance and not (name in permanently_safe_roads)) {
 						// Fire spreads to close roads with moderate probability
 						if (distance_to_fire < fire_spread_distance) {
-							float spread_chance <- fire_spread_probability * (1.0 - distance_to_fire / fire_spread_distance);
+							// Spread chance depends on source fire intensity and distance
+							float spread_chance <- fire_spread_probability * myself.fire_intensity * (1.0 - distance_to_fire / fire_spread_distance);
 							
 							if (flip(spread_chance)) {
-								on_fire <- true;
-								write "🔥 Fire spread to new road: " + name + " (distance: " + int(distance_to_fire) + "m)";
+								fire_intensity <- fire_ignition_intensity; // Start new fire with low intensity
+								write "🔥 Fire spread to new road: " + name + " (distance: " + int(distance_to_fire) + "m, intensity: " + fire_intensity + ")";
 								// Remove from safe roads list so it doesn't get picked again
 								safe_roads <- safe_roads - self;
 							}
@@ -208,8 +215,8 @@ global {
 	
 	// Check and spread fire to nearby shelters
 	reflex shelter_fire_spread when: every(5#cycle) {
-		// Get all roads that are on fire
-		list<road> fire_roads <- road where each.on_fire;
+		// Get all roads that have significant fire intensity
+		list<road> fire_roads <- road where (each.fire_intensity >= fire_spread_threshold);
 		
 		if (not empty(fire_roads)) {
 			// Check each shelter that is not yet on fire
@@ -218,10 +225,15 @@ global {
 				list<road> nearby_fire_roads <- fire_roads where (each.location distance_to self.location <= shelter_fire_distance);
 				
 				if (not empty(nearby_fire_roads)) {
-					// Set shelter on fire
-					on_fire <- true;
-					write "🏠🔥 Shelter caught fire! (distance to nearest fire road: " + 
-						int(min(nearby_fire_roads collect (each.location distance_to self.location))) + "m)";
+					// Set shelter on fire based on nearby fire intensity
+					float max_nearby_intensity <- max(nearby_fire_roads collect each.fire_intensity);
+					float ignition_chance <- max_nearby_intensity * 0.3; // 30% chance at full intensity
+					
+					if (flip(ignition_chance)) {
+						on_fire <- true;
+						write "🏠🔥 Shelter caught fire! (distance to nearest fire road: " + 
+							int(min(nearby_fire_roads collect (each.location distance_to self.location))) + "m, max fire intensity: " + max_nearby_intensity + ")";
+					}
 				}
 			}
 		}
@@ -252,31 +264,38 @@ species people skills: [moving] {
 	}
 	
 	reflex detect_fire when: status != "evacuated" {
-		// Check if there's fire nearby (from roads or shelters)
-		list<road> nearby_fire_roads <- road where (each.on_fire and each.location distance_to location < fire_detection_distance);
+		// Check if there's fire nearby (from roads or shelters) - detect fire earlier with intensity system
+		list<road> nearby_fire_roads <- road where (each.fire_intensity > 0.1 and each.location distance_to location < fire_detection_distance);
 		list<shelter> nearby_fire_shelters <- shelter where (each.on_fire and each.location distance_to location < fire_detection_distance);
 		
 		if ((not empty(nearby_fire_roads) or not empty(nearby_fire_shelters)) and not fire_detected) {
 			fire_detected <- true;
+			// Get maximum fire intensity nearby for panic level
+			float max_fire_intensity <- 0.0;
+			if (not empty(nearby_fire_roads)) {
+				max_fire_intensity <- max(nearby_fire_roads collect each.fire_intensity);
+			}
+			
 			// Start evacuating immediately if fire is detected
 			if (status = "normal") {
 				status <- "evacuating";
-				// Change color to red but keep type distinction with brightness
+				// Change color to red but keep type distinction with brightness - intensity affects color
+				float panic_level <- max_fire_intensity; // Use fire intensity to determine panic level
 				switch person_type {
-					match "children" { color <- rgb(255, 100, 100); } // Light red
-					match "youth" { color <- rgb(255, 0, 100); } // Red-magenta
+					match "children" { color <- rgb(int(255 * panic_level + 100), int(100 * panic_level), int(100 * panic_level)); } // Light red
+					match "youth" { color <- rgb(255, 0, int(100 * panic_level)); } // Red-magenta
 					match "adults" { color <- rgb(255, 0, 0); } // Pure red
-					match "seniors" { color <- rgb(200, 0, 0); } // Dark red
-					match "pwd" { color <- rgb(150, 0, 0); } // Very dark red
+					match "seniors" { color <- rgb(int(200 * panic_level + 55), 0, 0); } // Dark red
+					match "pwd" { color <- rgb(int(150 * panic_level + 105), 0, 0); } // Very dark red
 				}
 				// Increase evacuation speed (but maintain type-based differences)
-				float panic_multiplier <- 1.3; // 30% speed increase when panicking
+				float panic_multiplier <- 1.1 + (0.4 * panic_level); // 10-50% speed increase based on fire intensity
 				switch person_type {
-					match "children" { panic_multiplier <- 1.2; } // Children don't panic as much
-					match "youth" { panic_multiplier <- 1.5; } // Youth can move much faster when panicking
-					match "adults" { panic_multiplier <- 1.3; }
-					match "seniors" { panic_multiplier <- 1.1; } // Limited panic boost for seniors
-					match "pwd" { panic_multiplier <- 1.05; } // Very limited boost for PWD
+					match "children" { panic_multiplier <- 1.1 + (0.2 * panic_level); } // Children don't panic as much
+					match "youth" { panic_multiplier <- 1.2 + (0.6 * panic_level); } // Youth can move much faster when panicking
+					match "adults" { panic_multiplier <- 1.1 + (0.4 * panic_level); }
+					match "seniors" { panic_multiplier <- 1.05 + (0.15 * panic_level); } // Limited panic boost for seniors
+					match "pwd" { panic_multiplier <- 1.02 + (0.08 * panic_level); } // Very limited boost for PWD
 				}
 				speed <- base_speed * panic_multiplier #km/#h;
 				target <- nil; // Reset target to force new pathfinding
@@ -352,7 +371,16 @@ species road {
 	float capacity <- 1 + shape.perimeter/50;
 	int nb_people <- 0 update: length(people at_distance 1);
 	float speed_coeff <- 1.0 update: exp(-nb_people/capacity) min: 0.1;
-	bool on_fire <- false;
+	float fire_intensity <- 0.0; // Gradual fire intensity from 0.0 (no fire) to 1.0 (full fire)
+	bool on_fire <- false update: fire_intensity >= fire_spread_threshold; // For compatibility with existing code
+	
+	// Gradual fire buildup
+	reflex fire_buildup when: fire_intensity > 0.0 and fire_intensity < fire_full_intensity and not (name in permanently_safe_roads) {
+		fire_intensity <- fire_intensity + fire_intensity_increase;
+		if (fire_intensity > fire_full_intensity) {
+			fire_intensity <- fire_full_intensity;
+		}
+	}
 	
 	aspect default {
 		rgb road_color <- #black;
@@ -375,10 +403,30 @@ species road {
 			road_width <- 2;
 		}
 		
-		// Roads on fire are permanently red and blocked (but this won't happen to safe roads)
-		if (on_fire) {
-			road_color <- #red;
-			road_width <- 4;
+		// Gradual fire visualization - roads change color based on fire intensity
+		if (fire_intensity > 0.0) {
+			// Gradual color transition from black -> orange -> red
+			if (fire_intensity < 0.3) {
+				// Early fire: dark orange
+				int intensity_255 <- int(255 * (fire_intensity / 0.3));
+				road_color <- rgb(intensity_255, int(intensity_255 * 0.3), 0);
+				road_width <- 2;
+			} else if (fire_intensity < 0.7) {
+				// Medium fire: bright orange
+				int intensity_255 <- int(255 * ((fire_intensity - 0.3) / 0.4));
+				road_color <- rgb(255, int(165 - intensity_255 * 0.6), 0);
+				road_width <- 3;
+			} else {
+				// High fire: red
+				int intensity_255 <- int(255 * ((fire_intensity - 0.7) / 0.3));
+				road_color <- rgb(255, int(50 - intensity_255 * 0.2), 0);
+				road_width <- 4;
+			}
+			
+			// Add fire effects for high intensity
+			if (fire_intensity > 0.5) {
+				draw circle(20 + fire_intensity * 30) color: rgb(255, 100, 0, int(100 * fire_intensity)) at: location;
+			}
 		}
 		
 		draw shape color: road_color width: road_width;
@@ -495,22 +543,37 @@ experiment main type: gui {
 				draw line([{20, 545}, {40, 545}]) color: #red width: 4;
 				draw "Roads on Fire (Blocked)" at: {50, 545} color: #black font: font("Arial", 12, #plain);
 				
+				// Fire intensity legend
+				draw "FIRE INTENSITY LEVELS" at: {50, 575} color: #black font: font("Arial", 14, #bold);
+				
+				// Low fire intensity
+				draw line([{20, 600}, {40, 600}]) color: rgb(100, 30, 0) width: 2;
+				draw "Low Fire (0.1-0.3)" at: {50, 600} color: #black font: font("Arial", 10, #plain);
+				
+				// Medium fire intensity  
+				draw line([{20, 620}, {40, 620}]) color: rgb(255, 100, 0) width: 3;
+				draw "Medium Fire (0.3-0.7)" at: {50, 620} color: #black font: font("Arial", 10, #plain);
+				
+				// High fire intensity
+				draw line([{20, 640}, {40, 640}]) color: rgb(255, 30, 0) width: 4;
+				draw "High Fire (0.7-1.0)" at: {50, 640} color: #black font: font("Arial", 10, #plain);
+				
 				// Building Legend
-				draw "BUILDING TYPES" at: {50, 595} color: #black font: font("Arial", 16, #bold);
+				draw "BUILDING TYPES" at: {50, 695} color: #black font: font("Arial", 16, #bold);
 				
 				// Normal shelter
-				draw square(20) at: {20, 625} color: #gray;
-				draw "Normal Shelter" at: {50, 625} color: #black font: font("Arial", 12, #plain);
+				draw square(20) at: {20, 725} color: #gray;
+				draw "Normal Shelter" at: {50, 725} color: #black font: font("Arial", 12, #plain);
 				
 				// Evacuation shelter
-				draw square(20) at: {20, 655} color: #green;
-				draw "Evacuation Site (shelter176)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
+				draw square(20) at: {20, 755} color: #green;
+				draw "Evacuation Site (shelter176)" at: {50, 755} color: #black font: font("Arial", 12, #plain);
 				
 				// Shelter on fire
-				draw square(20) at: {20, 685} color: #red;
-				draw "🔥" at: {20, 685} font: font("Arial", 12, #bold) color: #orange;
-				draw "Shelter on Fire" at: {50, 685} color: #black font: font("Arial", 12, #plain);
-				draw "Fire radius: " + string(int(shelter_fire_distance)) + "m" at: {50, 700} color: #gray font: font("Arial", 10, #plain);
+				draw square(20) at: {20, 785} color: #red;
+				draw "🔥" at: {20, 785} font: font("Arial", 12, #bold) color: #orange;
+				draw "Shelter on Fire" at: {50, 785} color: #black font: font("Arial", 12, #plain);
+				draw "Fire radius: " + string(int(shelter_fire_distance)) + "m" at: {50, 800} color: #gray font: font("Arial", 10, #plain);
 			}
 		}
 		
@@ -537,6 +600,12 @@ experiment main type: gui {
 		
 		// Fire status monitors
 		monitor "Roads on Fire (Red)" value: length(road where each.on_fire);
+		monitor "Roads with Fire (Any Intensity)" value: length(road where (each.fire_intensity > 0.0));
+		monitor "Roads with Low Fire (0.1-0.3)" value: length(road where (each.fire_intensity > 0.0 and each.fire_intensity <= 0.3));
+		monitor "Roads with Medium Fire (0.3-0.7)" value: length(road where (each.fire_intensity > 0.3 and each.fire_intensity <= 0.7));
+		monitor "Roads with High Fire (0.7-1.0)" value: length(road where (each.fire_intensity > 0.7));
+		monitor "Average Fire Intensity" value: (length(road where (each.fire_intensity > 0.0)) > 0) ? 
+			mean(road where (each.fire_intensity > 0.0) collect each.fire_intensity) : 0.0;
 		monitor "Safe Roads Available" value: length(road where (not each.on_fire));
 		monitor "Permanently Safe Roads" value: length(road where (each.name in permanently_safe_roads));
 		monitor "Shelters on Fire" value: length(shelter where each.on_fire);
