@@ -2,14 +2,14 @@
 * Name: Simple Random Walk with Evacuation - Multi-Type People
 * Description: People of different types (children, youth, adults, seniors, PWD) walk to road136 and get evacuated with visual status
 * Features: Certain roads are permanently safe from fire and will never burn. Shelters catch fire when near burning roads.
-* shelter106 is marked as the evacuation site.
+* shelter176 is marked as the evacuation site.
 */
 
 model Simple_Random_Walk_Evacuation
 
 global {
-	file shapefile_roads <- file("../includes/Rouen roads.shp");
-	file shapefile_shelters <- file("../includes/test-house.shp");
+	file shapefile_roads <- file("../includes/pathway.shp");
+	file shapefile_shelters <- file("../includes/lahug-final.shp");
 
 	geometry shape <- envelope(shapefile_roads);
 	graph road_network;
@@ -391,7 +391,7 @@ species shelter {
 		rgb building_color <- #gray;
 		
 		// Check if this is the evacuation shelter
-		if (name = "shelter106") {
+		if (name = "shelter176") {
 			building_color <- #green;
 		}
 		
@@ -409,7 +409,7 @@ species shelter {
 		}
 		
 		// Add label for evacuation shelter
-		if (name = "shelter106") {
+		if (name = "shelter176") {
 			draw "EVACUATION SITE" at: location + {0, -30} color: #darkgreen font: font("Arial", 14, #bold);
 		}
 	}
@@ -504,7 +504,7 @@ experiment main type: gui {
 				
 				// Evacuation shelter
 				draw square(20) at: {20, 655} color: #green;
-				draw "Evacuation Site (shelter106)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
+				draw "Evacuation Site (shelter176)" at: {50, 655} color: #black font: font("Arial", 12, #plain);
 				
 				// Shelter on fire
 				draw square(20) at: {20, 685} color: #red;
