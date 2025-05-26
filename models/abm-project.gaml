@@ -8,7 +8,7 @@ model Simple_Random_Walk_Evacuation
 
 global {
 	file shapefile_roads <- file("../includes/Rouen roads.shp");
-	file shapefile_shelters <- file("../includes/test-house.shp");
+	file shapefile_shelters <- file("../includes/lahug-house.shp");
 
 	geometry shape <- envelope(shapefile_roads);
 	graph road_network;
@@ -25,11 +25,10 @@ global {
 	float evacuation_safety_distance <- 300.0 parameter: "Evacuation Safety Distance (m)" category: "Fire Parameters" min: 100.0 max: 1000.0;
 	
 	// List of permanently safe roads that will never catch fire
-	list<string> permanently_safe_roads <- [
-		"road131", "road120", "road130", "road142", "road119", "road123", 
-		"road146", "road108", "road150", "road134", "road115", "road151", 
-		"road133", "road137", "road136", "road138", "road148", "road149", 
-		"road152", "road118", "road143", "road147", "road129", "road122", 
+	list<string> permanently_safe_roads <- [ 
+		"road150", "road151", "road142",
+		"road137", "road136", "road138", "road148", "road149", 
+		"road152", "road143", "road147", "road129", 
 		"road140", "road139", "road141", "road144", "road135", "road145"
 	];
 	
@@ -41,13 +40,13 @@ global {
 	float pwd_speed <- 10.0 parameter: "PWD Speed (km/h)" category: "People Speeds";
 	
 	// People type proportions
-	float children_ratio <- 0.15 parameter: "Children Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float youth_ratio <- 0.25 parameter: "Youth Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float adults_ratio <- 0.35 parameter: "Adults Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float seniors_ratio <- 0.15 parameter: "Seniors Ratio" category: "People Distribution" min: 0.0 max: 1.0;
-	float pwd_ratio <- 0.10 parameter: "PWD Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float children_ratio <- 0.30 parameter: "Children Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float youth_ratio <- 0.20 parameter: "Youth Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float adults_ratio <- 0.44 parameter: "Adults Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float seniors_ratio <- 0.4 parameter: "Seniors Ratio" category: "People Distribution" min: 0.0 max: 1.0;
+	float pwd_ratio <- 0.02 parameter: "PWD Ratio" category: "People Distribution" min: 0.0 max: 1.0;
 	
-	int total_people <- 200 parameter: "Total People" category: "People Distribution" min: 10 max: 1000;
+	int total_people <- 500 parameter: "Total People" category: "People Distribution" min: 10 max: 1000;
 	
 	init {
 		create road from: shapefile_roads;
@@ -493,5 +492,71 @@ experiment main type: gui {
 			(length(people where (each.person_type = "seniors" and each.status = "evacuated")) / length(people where (each.person_type = "seniors")) * 100.0) : 0.0;
 		monitor "PWD Evacuation Rate %" value: (length(people where (each.person_type = "pwd")) > 0) ? 
 			(length(people where (each.person_type = "pwd" and each.status = "evacuated")) / length(people where (each.person_type = "pwd")) * 100.0) : 0.0;
+		
+		// CHARTS AND GRAPHS
+//		display "Evacuation Progress Chart" type: 2d {
+//			chart "Evacuation Status Over Time" type: series size: {1.0, 0.5} position: {0, 0} {
+//				data "Normal" value: length(people where (each.status = "normal")) color: #blue;
+//				data "Evacuating" value: length(people where (each.status = "evacuating")) color: #orange;
+//				data "Evacuated" value: length(people where (each.status = "evacuated")) color: #green;
+//				data "Fire Detected" value: length(people where each.fire_detected) color: #red;
+//			}
+//			
+//			chart "Fire Spread Over Time" type: series size: {1.0, 0.5} position: {0, 0.5} {
+//				data "Roads on Fire" value: length(road where each.on_fire) color: #red marker_shape: marker_square;
+//				data "Safe Roads" value: length(road where (not each.on_fire)) color: #green marker_shape: marker_circle;
+//			}
+//		}
+		
+//		display "Person Type Analysis" type: 2d {
+//			chart "Evacuation Rate by Person Type" type: histogram size: {0.5, 0.5} position: {0, 0} {
+//				data "Children" value: (length(people where (each.person_type = "children")) > 0) ? 
+//					(length(people where (each.person_type = "children" and each.status = "evacuated")) / length(people where (each.person_type = "children")) * 100.0) : 0.0 color: #blue;
+//				data "Youth" value: (length(people where (each.person_type = "youth")) > 0) ? 
+//					(length(people where (each.person_type = "youth" and each.status = "evacuated")) / length(people where (each.person_type = "youth")) * 100.0) : 0.0 color: #cyan;
+//				data "Adults" value: (length(people where (each.person_type = "adults")) > 0) ? 
+//					(length(people where (each.person_type = "adults" and each.status = "evacuated")) / length(people where (each.person_type = "adults")) * 100.0) : 0.0 color: #orange;
+//				data "Seniors" value: (length(people where (each.person_type = "seniors")) > 0) ? 
+//					(length(people where (each.person_type = "seniors" and each.status = "evacuated")) / length(people where (each.person_type = "seniors")) * 100.0) : 0.0 color: #purple;
+//				data "PWD" value: (length(people where (each.person_type = "pwd")) > 0) ? 
+//					(length(people where (each.person_type = "pwd" and each.status = "evacuated")) / length(people where (each.person_type = "pwd")) * 100.0) : 0.0 color: #magenta;
+//			}
+//			
+//			chart "Population Distribution" type: pie size: {0.5, 0.5} position: {0.5, 0} {
+//				data "Children" value: length(people where (each.person_type = "children")) color: #blue;
+//				data "Youth" value: length(people where (each.person_type = "youth")) color: #cyan;
+//				data "Adults" value: length(people where (each.person_type = "adults")) color: #orange;
+//				data "Seniors" value: length(people where (each.person_type = "seniors")) color: #purple;
+//				data "PWD" value: length(people where (each.person_type = "pwd")) color: #magenta;
+//			}
+//			
+//			chart "Evacuation Progress by Type" type: series size: {1.0, 0.5} position: {0, 0.5} {
+//				data "Children Evacuated" value: length(people where (each.person_type = "children" and each.status = "evacuated")) color: #blue;
+//				data "Youth Evacuated" value: length(people where (each.person_type = "youth" and each.status = "evacuated")) color: #cyan;
+//				data "Adults Evacuated" value: length(people where (each.person_type = "adults" and each.status = "evacuated")) color: #orange;
+//				data "Seniors Evacuated" value: length(people where (each.person_type = "seniors" and each.status = "evacuated")) color: #purple;
+//				data "PWD Evacuated" value: length(people where (each.person_type = "pwd" and each.status = "evacuated")) color: #magenta;
+//			}
+//		}
+		
+//		display "Overall Statistics" type: 2d {
+//			chart "Total Evacuation Rate" type: series size: {1.0, 0.3} position: {0, 0} 
+//				y_range: [0, 100] {
+//				data "Evacuation Rate %" value: length(people where (each.status = "evacuated")) / length(people) * 100.0 
+//					color: #green style: line thickness: 3;
+//			}
+//			
+//			chart "Average Speed by Status" type: histogram size: {1.0, 0.3} position: {0, 0.35} {
+//				data "Normal" value: mean(people where (each.status = "normal") collect each.speed) color: #blue;
+//				data "Evacuating" value: mean(people where (each.status = "evacuating") collect each.speed) color: #orange;
+//				data "Fire Detected" value: mean(people where (each.fire_detected) collect each.speed) color: #red;
+//			}
+//			
+//			chart "Fire vs Safe Infrastructure" type: radar size: {1.0, 0.35} position: {0, 0.65} {
+//				data "Roads on Fire %" value: (length(road where each.on_fire) / length(road) * 100.0) color: #red;
+//				data "Safe Roads %" value: (length(road where (not each.on_fire)) / length(road) * 100.0) color: #green;
+//				data "Permanently Safe %" value: (length(road where (each.name in permanently_safe_roads)) / length(road) * 100.0) color: #blue;
+//			}
+//		}
 	}
 }
